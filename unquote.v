@@ -1,4 +1,5 @@
 Require Import Ascii.
+Require Import lib.
 
 Inductive type: Type :=
   | type_forall: ascii -> type -> type
@@ -31,30 +32,21 @@ Notation "{ k , v | m }" := (mapping_update m k v)
 
 Definition type_env := mapping type.
 
-Inductive type_subst: type -> ascii -> type -> type -> Prop :=
-  | ts_var_p: forall t_var t2,
-      type_subst (type_var t_var) t_var t2 t2
-  | ts_var_n: forall t_var1 t_var2 t2,
-      t_var1 <> t_var2 ->
-      type_subst (type_var t_var1) t_var2 t2
-                 (type_var t_var1)
-  | ts_func: forall t1 t2 t1' t2' t_var t3,
-      type_subst t1 t_var t3 t1' ->
-      type_subst t2 t_var t3 t2' ->
-      type_subst (type_func t1 t2) t_var t3 (type_func t1' t2')
-  | ts_forall_p: forall t_var1 t1 t1' t_var2 t2,
-      t_var1 <> t_var2 ->
-      type_subst t1 t_var2 t2 t1' ->
-      type_subst (type_forall t_var1 t1)
-                 t_var2 t2 (type_forall t_var1 t1')
-  | ts_forall_n: forall t_var t1 t2,
-      type_subst (type_forall t_var t1)
-                 t_var t2 (type_forall t_var t1).
-Hint Constructors type_subst.
+Fixpoint subst_type (t: type) (id: ascii) (t': type) : type :=
+  match t with
+  | type_forall v t1 =>
+      if ascii_dec id v
+      then type_forall v t1
+      else type_forall v (subst_type t1 id t')
+  | type_func t1 t2 =>
+      type_func (subst_type t1 id t')
+                (subst_type t2 id t')
+  | type_var v => if ascii_dec id v then t' else t
+  end.
 
 Inductive type_subst_in_exp: exp -> ascii -> type -> exp -> Prop :=
   | tse_func: forall v t_v t_v' e1 e1' id t',
-      type_subst t_v id t' t_v' ->
+      subst_type t_v id t' = t_v' ->
       type_subst_in_exp e1 id t' e1' ->
       type_subst_in_exp (exp_func v t_v e1)
                         id t' (exp_func v t_v' e1')
@@ -73,7 +65,7 @@ Inductive type_subst_in_exp: exp -> ascii -> type -> exp -> Prop :=
                         (exp_tfunc id e1)
   | tse_tapp: forall e e' t1 t1' id t',
       type_subst_in_exp e id t' e' ->
-      type_subst t1 id t' t1' ->
+      subst_type t1 id t' = t1' ->
       type_subst_in_exp (exp_tapp e t1) id t'
                         (exp_tapp e' t1')
   | tse_var: forall v id t',
@@ -109,28 +101,28 @@ Inductive exp_subst: exp -> ascii -> exp -> exp -> Prop :=
       exp_subst (exp_var id1) id2 e' (exp_var id1).
 Hint Constructors exp_subst.
 
-Reserved Notation "env / e |- t"
+Reserved Notation "env |- e : t"
          (at level 40, e at level 39).
 
 Inductive type_checked: type_env -> exp -> type -> Prop :=
   | tc_func: forall t_env v t_v e t_e,
-      { v, t_v | t_env } / e |- t_e ->
-      t_env / (exp_func v t_v e) |- (type_func t_v t_e)
+      { v, t_v | t_env } |- e : t_e ->
+      t_env |- (exp_func v t_v e) : (type_func t_v t_e)
   | tc_app: forall t_env e1 e2 t_v t_e,
-      t_env / e1 |- (type_func t_v t_e) ->
-      t_env / e2 |- t_v ->
-      t_env / (exp_app e1 e2) |- t_e
+      t_env |- e1 : (type_func t_v t_e) ->
+      t_env |- e2 : t_v ->
+      t_env |- (exp_app e1 e2) : t_e
   | tc_tfunc: forall t_env v e t,
-      t_env / e |- t ->
-      t_env / (exp_tfunc v e) |- (type_forall v t)
+      t_env |- e : t ->
+      t_env |- (exp_tfunc v e) : (type_forall v t)
   | tc_tapp: forall t_env e v t_e t t_result,
-      t_env / e |- (type_forall v t_e) ->
-      type_subst t_e v t t_result ->
-      t_env / (exp_tapp e t) |- t_result
+      t_env |- e : (type_forall v t_e) ->
+      subst_type t_e v t = t_result ->
+      t_env |- (exp_tapp e t) : t_result
   | tc_var: forall t_env v t,
       (t_env v) = (Some t) ->
-      t_env / (exp_var v) |- t
-where "env / e |- t" := (type_checked env e t).
+      t_env |- (exp_var v) : t
+where "env |- e : t" := (type_checked env e t).
 Hint Constructors type_checked.
 
 Reserved Notation "e1 |> e2"
@@ -183,17 +175,6 @@ Definition equivalent (e1 e2: exp) : Prop :=
 Notation "e1 ~ e2" := (equivalent e1 e2)
                         (at level 20).
 
-Fixpoint subst_type (t: type) (id: ascii) (t': type) : type :=
-  match t with
-  | type_forall v t1 =>
-      if ascii_dec id v
-      then type_forall v t1
-      else type_forall v (subst_type t1 id t')
-  | type_func t1 t2 =>
-      type_func (subst_type t1 id t')
-                (subst_type t2 id t')
-  | type_var v => if ascii_dec id v then t' else t
-  end.
 
 Fixpoint _typecheck (t_env: type_env) (e: exp) : option type :=
   match e with
@@ -238,6 +219,50 @@ Fact identity_typechecked :
   Some identity_type = typecheck identity.
 Proof.
   compute. reflexivity.
+Qed.
+
+Theorem typecheck_sound : forall env e t,
+    _typecheck env e = Some t -> type_checked env e t.
+Proof.
+  intros env e. generalize dependent env.
+  induction e; intros env t' H0; simpl in H0.
+  - remember {a, t | env} as env'.
+    remember (_typecheck env' e) as ot.
+    destruct ot; inversion H0.
+    apply tc_func.
+    rewrite <- Heqenv'.
+    auto.
+  - remember (_typecheck env e1) as ot1.
+    remember (_typecheck env e2) as ot2.
+    destruct ot1 as [t1|];
+      try solve by inversion;
+      destruct t1 as [|t1 t0|]; try solve by inversion.
+    destruct ot2 as [t2|];
+      try solve by inversion.
+    destruct (type_eq_dec t1 t2); try solve by inversion.
+    inversion H0. subst.
+    apply tc_app with t2; auto.
+  - remember (_typecheck env e) as ot.
+    destruct ot as [t|]; try solve by inversion.
+    inversion H0. subst.
+    apply tc_tfunc. auto.
+  - remember (_typecheck env e) as ot.
+    destruct ot as [t0|]; try solve by inversion.
+    destruct t0; try solve by inversion.
+    inversion H0. subst.
+    apply tc_tapp with a t0; auto.
+  - auto.
+Qed.
+
+Theorem typecheck_complete : forall env e t,
+    type_checked env e t -> _typecheck env e = Some t.
+Proof.
+  intros env e t H0.
+  induction H0; simpl; try rewrite IHtype_checked; try reflexivity.
+  - rewrite IHtype_checked1. rewrite IHtype_checked2.
+    destruct (type_eq_dec t_v t_v) as [b|b]; try elim b; reflexivity.
+  - subst. reflexivity.
+  - auto.
 Qed.
 
 Fixpoint _quote (t_env: type_env) (e: exp) : option exp :=
