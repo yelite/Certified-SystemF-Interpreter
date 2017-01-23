@@ -400,6 +400,8 @@ Fixpoint _quote (t_env: type_env) (e: exp) : option exp :=
   | exp_var v => Some (exp_var v)
   end.
 
+Hint Transparent option_map.
+
 Definition quote (e: exp) : option exp :=
   option_map (fun e' => exp_func "i" identity_type e')
              (_quote empty_mapping e).
@@ -409,18 +411,69 @@ Definition unquote : exp :=
   exp_tfunc "a" (exp_func "q" rtype
                           (exp_app (exp_var "q") identity)).
 
-  
-Theorem quote_nf : forall e e',
-    _quote empty_mapping e = Some e' ->
+
+Lemma strong_quote_nf : forall e e' t_env,
+    _quote t_env e = Some e' ->
     nf e'.
-Admitted.
-  
-         
+Proof.
+  intros e.
+  induction e; intros e' t_env; simpl; try unfold option_map;
+  intros H0.
+  - remember ({a, t | t_env}) as t_env'.
+    remember (_quote t_env' e) as oe.
+    destruct oe as [e0|]; inversion H0.
+    eauto.
+  - remember (_typecheck t_env e1) as ot1.
+    remember (_quote t_env e1) as oe1.
+    remember (_quote t_env e2) as oe2.
+    destruct ot1 as [t1|]; inversion H0.
+    destruct oe1 as [e1'|]; inversion H0.
+    destruct oe2 as [e2'|]; inversion H0.
+    repeat constructor; eauto.
+    + intros [v [e0 contra]].
+      inversion contra.
+    + intros [v [t_v [e0 contra]]].
+      inversion contra.
+    + intros [v [t_v [e0 contra]]].
+      inversion contra.
+  - remember (_quote t_env e) as oe.
+    destruct oe as [e0'|]; inversion H0.
+    constructor.
+    eauto.
+  - remember (_typecheck t_env e) as ot.
+    remember (_quote t_env e) as oe.
+    destruct ot as [t'|]; inversion H0.
+    destruct oe as [e0'|]; inversion H0.
+    repeat constructor; eauto.
+    + intros [v [e0 contra]].
+      inversion contra.
+    + intros [v [t_v [e0 contra]]].
+      inversion contra.
+    + intros [v [e0 contra]].
+      inversion contra.
+  - inversion H0.
+    auto.
+Qed.
+
+Theorem quote_nf : forall e e',
+    quote e = Some e' ->
+    nf e'.
+Proof.
+  intros e e' H.
+  unfold quote in H.
+  unfold option_map in H.
+  remember (_quote empty_mapping e) as oe.
+  destruct oe as [e0'|]; inversion H.
+  remember (strong_quote_nf e e0' empty_mapping) as H0.
+  constructor.
+  auto.
+Qed.
+
 Theorem quote_type : forall e e' t,
     quote e = Some e' ->
     typecheck e = Some t ->
     typecheck e' = Some (type_func identity_type t).
-Admitted.
+Proof.
 
 Theorem unquoted_eq : forall e e' t,
     quote e = Some e' ->
