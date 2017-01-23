@@ -72,6 +72,24 @@ Inductive type_subst_in_exp: exp -> ascii -> type -> exp -> Prop :=
       type_subst_in_exp (exp_var v) id t' (exp_var v).
 Hint Constructors type_subst_in_exp.
 
+Lemma type_subst_in_exp_total: forall e id t,
+    exists e', type_subst_in_exp e id t e'.
+Proof.
+  intros e id t.
+  induction e; try destruct IHe as [e' IHe].
+  - exists (exp_func a (subst_type t0 id t) e').
+    auto.
+  - destruct IHe1 as [e1' IHe1].
+    destruct IHe2 as [e2' IHe2].
+    exists (exp_app e1' e2'). auto.
+  - destruct (ascii_dec a id).
+    + subst. exists (exp_tfunc id e). auto.
+    + exists (exp_tfunc a e'). constructor; auto.
+  - exists (exp_tapp e' (subst_type t0 id t)). auto.
+  - exists (exp_var a). auto.
+Qed.
+
+
 Inductive exp_subst: exp -> ascii -> exp -> exp -> Prop :=
   | es_func_p: forall v t_v e1 e1' id e',
       v <> id ->
@@ -100,6 +118,25 @@ Inductive exp_subst: exp -> ascii -> exp -> exp -> Prop :=
       id1 <> id2 ->
       exp_subst (exp_var id1) id2 e' (exp_var id1).
 Hint Constructors exp_subst.
+
+Lemma exp_subst_total: forall e id e0,
+    exists e', exp_subst e id e0 e'.
+Proof.
+  intros e id e0.
+  induction e; try destruct IHe as [e' IHe].
+  - destruct (ascii_dec a id).
+    + exists (exp_func a t e). subst. auto.
+    + exists (exp_func a t e'). constructor; auto.
+  - destruct IHe1 as [e1' IHe1].
+    destruct IHe2 as [e2' IHe2].
+    exists (exp_app e1' e2'). auto.
+  - exists (exp_tfunc a e'). auto.
+  - exists (exp_tapp e' t). auto.
+  - destruct (ascii_dec a id); subst.
+    + exists e0. auto.
+    + exists (exp_var a). auto.
+Qed.
+
 
 Reserved Notation "env |- e : t"
          (at level 40, e at level 39).
@@ -166,8 +203,75 @@ Inductive beta_reductions: exp -> exp -> Prop :=
 where "e1 |>* e2" := (beta_reductions e1 e2).
 Hint Constructors beta_reductions.
 
-Definition nf (e: exp) : Prop :=
-  ~ exists e', beta_reduction e e'.
+Inductive nf: exp -> Prop :=
+  | nf_func: forall v t_v e1,
+      nf e1 ->
+      nf (exp_func v t_v e1)
+  | nf_app: forall e1 e2,
+      nf e1 ->
+      nf e2 ->
+      (~ exists v t_v e', e1 = (exp_func v t_v e')) ->
+      nf (exp_app e1 e2)
+  | nf_tfunc: forall v e1,
+      nf e1 ->
+      nf (exp_tfunc v e1)
+  | nf_tapp: forall e1 t,
+      nf e1 ->
+      (~ exists v e', e1 = (exp_tfunc v e')) ->
+      nf (exp_tapp e1 t)
+  | nf_var: forall v,
+      nf (exp_var v).
+Hint Constructors nf.
+
+Fact nf_iff_stuck : forall e,
+    nf e <-> ~ exists e', beta_reduction e e'.
+Proof.
+  split.
+  - intros H.
+    induction e; intros [e' contra]; inversion H; subst;
+      try (apply (IHe H1);
+           inversion contra; subst;
+           exists e1'; auto).
+    + inversion contra; subst.
+      * apply H4. exists v, t_v, e_f. reflexivity.
+      * apply (IHe1 H2). exists e1'. auto.
+      * apply (IHe2 H3). exists e2'. auto.
+    + inversion contra; subst.
+      * apply H3. exists v, e2. reflexivity.
+      * apply (IHe H2). exists e1'. auto.
+    + inversion contra.
+  - intros H0.
+    induction e; constructor.
+    + apply IHe.
+      intros [e' contra].
+      apply H0.
+      exists (exp_func a t e'). auto.
+    + apply IHe1.
+      intros [e' contra].
+      apply H0.
+      exists (exp_app e' e2). auto.
+    + apply IHe2.
+      intros [e' contra].
+      apply H0.
+      exists (exp_app e1 e'). auto.
+    + intros [v [t_v [e' H]]]. subst.
+      apply H0.
+      destruct (exp_subst_total e' v e2) as [e H__subst].
+      exists e. auto.
+    + apply IHe.
+      intros [e' contra].
+      apply H0.
+      exists (exp_tfunc a e'). auto.
+    + apply IHe.
+      intros [e' contra].
+      apply H0.
+      exists (exp_tapp e' t). auto.
+    + intros [v [e' H]]. subst.
+      apply H0.
+      destruct (type_subst_in_exp_total e' v t) as [e'' H__subst].
+      exists e''. auto.
+Qed.
+
 
 Definition equivalent (e1 e2: exp) : Prop :=
   exists e', (e1 |>* e') /\ (e2 |>* e').
@@ -305,11 +409,12 @@ Definition unquote : exp :=
   exp_tfunc "a" (exp_func "q" rtype
                           (exp_app (exp_var "q") identity)).
 
+  
 Theorem quote_nf : forall e e',
-    quote e = Some e' ->
+    _quote empty_mapping e = Some e' ->
     nf e'.
-Proof.
 Admitted.
+  
          
 Theorem quote_type : forall e e' t,
     quote e = Some e' ->
