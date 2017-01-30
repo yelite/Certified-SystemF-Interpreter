@@ -1,23 +1,32 @@
 Require Export Ascii.
+Require Export SetoidClass.
+
+Require Import Relations.
+Require Import Morphisms.
 Require Import lib.
 Require Import FunctionalExtensionality.
 
-Inductive type: Type :=
+Inductive type : Type :=
   | type_forall: ascii -> type -> type
   | type_func: type -> type -> type
   | type_var: ascii -> type.
 
-Inductive exp: Type :=
+Inductive exp : Type :=
   | exp_func: ascii -> type -> exp -> exp
   | exp_app: exp -> exp -> exp
   | exp_tfunc: ascii -> exp -> exp
   | exp_tapp: exp -> type -> exp
   | exp_var: ascii -> exp.
 
-Definition type_eq_dec: forall t1 t2: type, {t1 = t2} + {t1 <> t2}.
+Definition type_eq_dec: forall t1 t2 : type, {t1 = t2} + {t1 <> t2}.
 Proof.
   decide equality; apply ascii_dec.
 Defined.
+
+Definition exp_eq_dec: forall e1 e2 : exp, {e1 = e2} + {e1 <> e2}.
+Proof.
+  decide equality; try apply type_eq_dec; try apply ascii_dec.
+Qed.
 
 Definition mapping (A: Type) := ascii -> option A.
 
@@ -87,22 +96,43 @@ Inductive type_subst_in_exp: exp -> ascii -> type -> exp -> Prop :=
       type_subst_in_exp (exp_var v) id t' (exp_var v).
 Hint Constructors type_subst_in_exp.
 
-Lemma type_subst_in_exp_total: forall e id t,
-    exists e', type_subst_in_exp e id t e'.
+Fixpoint subst_type_in_exp (e : exp) (id : ascii) (t : type) : exp :=
+  match e with
+  | exp_func v t_v e0 => exp_func v (subst_type t_v id t)
+                                 (subst_type_in_exp e0 id t)
+  | exp_app e1 e2 => exp_app (subst_type_in_exp e1 id t)
+                            (subst_type_in_exp e2 id t)
+  | exp_tfunc v e0 =>
+    if (ascii_dec v id) then e else exp_tfunc v (subst_type_in_exp e0 id t)
+  | exp_tapp e1 t2 => exp_tapp (subst_type_in_exp e1 id t) (subst_type t2 id t)
+  | exp_var v => e
+  end.
+
+Theorem subst_type_in_exp_correct : forall e id t e',
+    subst_type_in_exp e id t = e' <-> type_subst_in_exp e id t e'.
 Proof.
   intros e id t.
-  induction e; try destruct IHe as [e' IHe].
-  - exists (exp_func a (subst_type t0 id t) e').
-    auto.
-  - destruct IHe1 as [e1' IHe1].
-    destruct IHe2 as [e2' IHe2].
-    exists (exp_app e1' e2'). auto.
-  - destruct (ascii_dec a id).
-    + subst. exists (exp_tfunc id e). auto.
-    + exists (exp_tfunc a e'). constructor; auto.
-  - exists (exp_tapp e' (subst_type t0 id t)). auto.
-  - exists (exp_var a). auto.
+  split.
+  - generalize dependent e'.
+    induction e; intros e' H; simpl in H; subst; auto.
+    destruct (ascii_dec a id); subst; auto.
+  - generalize dependent e'.
+    induction e; intros e' H; inversion H; subst; simpl; auto.
+    + rewrite (IHe _ H7).
+      reflexivity.
+    + rewrite (IHe1 _ H2).
+      rewrite (IHe2 _ H6).
+      reflexivity.
+    + destruct (ascii_dec a id); try contradiction.
+      rewrite (IHe _ H6).
+      reflexivity.
+    + destruct (ascii_dec id id); try contradiction.
+      reflexivity.
+    + rewrite (IHe _ H2).
+      reflexivity.
 Qed.
+Hint Resolve -> subst_type_in_exp_correct.
+Hint Resolve <- subst_type_in_exp_correct.
 
 
 Inductive exp_subst: exp -> ascii -> exp -> exp -> Prop :=
@@ -134,53 +164,73 @@ Inductive exp_subst: exp -> ascii -> exp -> exp -> Prop :=
       exp_subst (exp_var id1) id2 e' (exp_var id1).
 Hint Constructors exp_subst.
 
-Lemma exp_subst_total: forall e id e0,
-    exists e', exp_subst e id e0 e'.
+Fixpoint subst_exp (e : exp) (id : ascii) (e0 : exp) : exp :=
+  match e with
+  | exp_func v t_v e1 =>
+    if (ascii_dec v id) then e else exp_func v t_v (subst_exp e1 id e0)
+  | exp_app e1 e2 => exp_app (subst_exp e1 id e0) (subst_exp e2 id e0)
+  | exp_tfunc v e1 => exp_tfunc v (subst_exp e1 id e0)
+  | exp_tapp e1 t => exp_tapp (subst_exp e1 id e0) t
+  | exp_var v => if (ascii_dec v id) then e0 else e
+  end.
+
+Theorem subst_exp_correct : forall e id e0 e',
+    subst_exp e id e0 = e' <-> exp_subst e id e0 e'.
 Proof.
-  intros e id e0.
-  induction e; try destruct IHe as [e' IHe].
-  - destruct (ascii_dec a id).
-    + exists (exp_func a t e). subst. auto.
-    + exists (exp_func a t e'). constructor; auto.
-  - destruct IHe1 as [e1' IHe1].
-    destruct IHe2 as [e2' IHe2].
-    exists (exp_app e1' e2'). auto.
-  - exists (exp_tfunc a e'). auto.
-  - exists (exp_tapp e' t). auto.
-  - destruct (ascii_dec a id); subst.
-    + exists e0. auto.
-    + exists (exp_var a). auto.
+  intros e id e0 e'.
+  split; generalize dependent e'.
+  - induction e; intros e' H; simpl in H;
+      try destruct (ascii_dec a id); subst; auto.
+  - induction e; intros e' H; inversion H; subst; simpl.
+    + destruct (ascii_dec a id); try contradiction.
+      rewrite (IHe _ H7).
+      reflexivity.
+    + destruct (ascii_dec id id); try contradiction.
+      reflexivity.
+    + rewrite (IHe1 _ H2).
+      rewrite (IHe2 _ H6).
+      reflexivity.
+    + rewrite (IHe _ H5).
+      reflexivity.
+    + rewrite (IHe _ H5).
+      reflexivity.
+    + destruct (ascii_dec id id); try contradiction.
+      reflexivity.
+    + destruct (ascii_dec a id); try contradiction.
+      reflexivity.
 Qed.
+Hint Resolve -> subst_exp_correct.
+Hint Resolve <- subst_exp_correct.
 
 
-Reserved Notation "env |- e : t"
+Reserved Notation "/ env |- e : t"
          (at level 40, e at level 39).
 
 Inductive type_checked: type_env -> exp -> type -> Prop :=
   | tc_func: forall t_env v t_v e t_e,
-      { v, t_v | t_env } |- e : t_e ->
-      t_env |- (exp_func v t_v e) : (type_func t_v t_e)
+      / { v, t_v | t_env } |- e : t_e ->
+      / t_env |- (exp_func v t_v e) : (type_func t_v t_e)
   | tc_app: forall t_env e1 e2 t_v t_e,
-      t_env |- e1 : (type_func t_v t_e) ->
-      t_env |- e2 : t_v ->
-      t_env |- (exp_app e1 e2) : t_e
+      / t_env |- e1 : (type_func t_v t_e) ->
+      / t_env |- e2 : t_v ->
+      / t_env |- (exp_app e1 e2) : t_e
   | tc_tfunc: forall t_env v e t,
-      t_env |- e : t ->
-      t_env |- (exp_tfunc v e) : (type_forall v t)
+      / t_env |- e : t ->
+      / t_env |- (exp_tfunc v e) : (type_forall v t)
   | tc_tapp: forall t_env e v t_e t t_result,
-      t_env |- e : (type_forall v t_e) ->
+      / t_env |- e : (type_forall v t_e) ->
       subst_type t_e v t = t_result ->
-      t_env |- (exp_tapp e t) : t_result
+      / t_env |- (exp_tapp e t) : t_result
   | tc_var: forall t_env v t,
       (t_env v) = (Some t) ->
-      t_env |- (exp_var v) : t
-where "env |- e : t" := (type_checked env e t).
+      / t_env |- (exp_var v) : t
+where "/ env |- e : t" := (type_checked env e t).
 Hint Constructors type_checked.
 
 Reserved Notation "e1 |> e2"
          (at level 40).
 
-Inductive beta_reduction: exp -> exp -> Prop :=
+Inductive beta_reduction: relation exp :=
   | br_func: forall v t_v e1 e1',
       e1 |> e1' ->
       (exp_func v t_v e1) |> (exp_func v t_v e1')
@@ -208,9 +258,12 @@ Hint Constructors beta_reduction.
 Reserved Notation "e1 |>* e2"
          (at level 40).
 
-Inductive beta_reductions: exp -> exp -> Prop :=
-  | bn_step: forall e1 e2 e3,
+Inductive beta_reductions: relation exp :=
+  | bn_base: forall e1 e2,
       e1 |> e2 ->
+      e1 |>* e2
+  | bn_trans: forall e1 e2 e3,
+      e1 |>* e2 ->
       e2 |>* e3 ->
       e1 |>* e3
   | bn_refl: forall e1,
@@ -271,7 +324,7 @@ Proof.
       exists (exp_app e1 e'). auto.
     + intros [v [t_v [e' H]]]. subst.
       apply H0.
-      destruct (exp_subst_total e' v e2) as [e H__subst].
+      remember (subst_exp e' v e2) as e.
       exists e. auto.
     + apply IHe.
       intros [e' contra].
@@ -283,16 +336,110 @@ Proof.
       exists (exp_tapp e' t). auto.
     + intros [v [e' H]]. subst.
       apply H0.
-      destruct (type_subst_in_exp_total e' v t) as [e'' H__subst].
+      remember (subst_type_in_exp e' v t) as e''.
       exists e''. auto.
 Qed.
 
+Reserved Notation "e1 ~ e2" (at level 20).
 
-Definition equivalent (e1 e2: exp) : Prop :=
-  exists e', (e1 |>* e') /\ (e2 |>* e').
+Inductive equivalent : relation exp :=
+  | equiv_base : forall e1 e2,
+      e1 |>* e2 ->
+      e1 ~ e2
+  | equiv_symmetric : forall e1 e2,
+      e1 ~ e2 ->
+      e2 ~ e1
+  | equiv_transitive : forall e1 e2 e3,
+      e1 ~ e2 ->
+      e2 ~ e3 ->
+      e1 ~ e3
+where "e1 ~ e2" := (equivalent e1 e2).
+Hint Constructors equivalent.
 
-Notation "e1 ~ e2" := (equivalent e1 e2)
-                        (at level 20).
+Instance equiv_Equiv : Equivalence equivalent.
+Proof.
+  split.
+  - intros e.
+    constructor.
+    apply bn_refl.
+  - intros e1 e2 H.
+    apply equiv_symmetric.
+    assumption.
+  - intros e1 e2 e3 H1 H2.
+    eapply equiv_transitive.
+    eauto.
+    auto.
+Qed.
+
+
+Ltac equiv_induction :=
+  match goal with
+    H1: _ ~ _ |- _ => induction H1; eauto;
+                    match goal with
+                      H2: _ |>* _ |- _ => induction H2; eauto
+                    end
+  end.
+
+
+Instance exp_func_Proper : Proper (eq ==> eq ==> equivalent ==> equivalent)
+                                  exp_func.
+Proof.
+  intros v1 v2 Hv t1 t2 Ht e1 e2 He.
+  rewrite Hv.
+  rewrite Ht.
+  equiv_induction.
+Qed.
+
+Instance exp_app_e2_Proper : forall e1, Proper (equivalent ==> equivalent)
+                                          (exp_app e1).
+Proof.
+  intros e1.
+  intros e2 e2' H2.
+  equiv_induction.
+Qed.
+
+Instance exp_app_e1_Proper : forall e2, Proper (equivalent ==> equivalent)
+                                          (fun e1 => exp_app e1 e2).
+Proof.
+  intros e2.
+  intros e1 e1' H1.
+  equiv_induction.
+Qed.
+
+Instance exp_app_full_Proper :
+  Proper (equivalent ==> equivalent ==> equivalent) exp_app.
+Proof.
+  intros e1 e1' H1 e2 e2' H2.
+  transitivity (exp_app e1 e2').
+  rewrite H2. reflexivity.
+  apply exp_app_e1_Proper.
+  auto.
+Qed.
+
+Instance exp_tfunc_Proper : Proper (eq ==> equivalent ==> equivalent)
+                                   exp_tfunc.
+Proof.
+  intros v1 v2 Hv e1 e2 He.
+  rewrite Hv.
+  equiv_induction.
+Qed.
+
+Instance exp_tapp_Proper : Proper (equivalent ==> eq ==> equivalent)
+                                  exp_tapp.
+Proof.
+  intros e1 e2 He t1 t2 Ht.
+  rewrite Ht.
+  equiv_induction.
+Qed.
+
+
+Theorem reduce_equiv : forall e1 e2,
+    e1 |> e2 ->
+    e1 ~ e2.
+Proof.
+  intros e1 e2 H.
+  eauto.
+Qed.
 
 
 Fixpoint _typecheck (t_env: type_env) (e: exp) : option type :=
@@ -348,7 +495,7 @@ Proof.
 Qed.
 
 Theorem typecheck_sound : forall env e t,
-    _typecheck env e = Some t -> type_checked env e t.
+    _typecheck env e = Some t -> / env |- e : t.
 Proof.
   intros env e. generalize dependent env.
   induction e; intros env t' H0; simpl in H0.
@@ -381,7 +528,7 @@ Proof.
 Qed.
 
 Theorem typecheck_complete : forall env e t,
-    type_checked env e t -> _typecheck env e = Some t.
+    / env |- e : t -> _typecheck env e = Some t.
 Proof.
   intros env e t H0.
   induction H0; simpl; try rewrite IHtype_checked; try reflexivity.
