@@ -48,11 +48,9 @@ Proof.
   intros env k1 k2 v1 v2 H0.
   unfold mapping_update.
   extensionality x.
-  destruct (ascii_dec x k1); destruct (ascii_dec x k2);
-    try (subst; contradiction);
-    try (reflexivity).
+  repeat destruct_prem.
+  all: subst; try contradiction; auto.
 Qed.
-
 
 Definition type_env := mapping type.
 
@@ -114,7 +112,7 @@ Theorem subst_type_in_exp_correct : forall e id t e',
 Proof.
   intros e id t.
   split; generalize dependent e'.
-  - induction e; intros e' H; simpl in H; subst;
+  - induction e; intros; simpl in *; subst;
       destruct_prem; solve_by_rewrite; auto.
   - induction e; intros e' H; inversion H; subst; simpl;
     destruct_prem; auto_cond_rewrite; auto.
@@ -167,7 +165,7 @@ Theorem subst_exp_correct : forall e id e0 e',
 Proof.
   intros e id e0 e'.
   split; generalize dependent e'.
-  - induction e; intros e' H; simpl in H; subst;
+  - induction e; intros; simpl in *; subst;
       destruct_prem; solve_by_rewrite; auto.
   - induction e; intros e' H; inversion H; subst; simpl;
       destruct_prem; auto_cond_rewrite; auto.
@@ -203,6 +201,7 @@ Hint Constructors type_checked.
 Reserved Notation "e1 |> e2"
          (at level 40).
 
+(* small step semantics *)
 Inductive beta_reduction: relation exp :=
   | br_func: forall v t_v e1 e1',
       e1 |> e1' ->
@@ -231,6 +230,7 @@ Hint Constructors beta_reduction.
 Reserved Notation "e1 |>* e2"
          (at level 40).
 
+(* the reflexive transitive closure of small step *)
 Inductive beta_reductions: relation exp :=
   | bn_base: forall e1 e2,
       e1 |> e2 ->
@@ -244,6 +244,7 @@ Inductive beta_reductions: relation exp :=
 where "e1 |>* e2" := (beta_reductions e1 e2).
 Hint Constructors beta_reductions.
 
+(* a convenient definition of normal form *)
 Inductive nf: exp -> Prop :=
   | nf_func: forall v t_v e1,
       nf e1 ->
@@ -264,57 +265,25 @@ Inductive nf: exp -> Prop :=
       nf (exp_var v).
 Hint Constructors nf.
 
+
+(* prove this definition is correct *)
 Fact nf_iff_stuck : forall e,
     nf e <-> ~ exists e', beta_reduction e e'.
 Proof.
   split.
   - intros H.
     induction e; intros [e' contra]; inversion H; subst;
-      try (apply (IHe H1);
-           inversion contra; subst;
-           exists e1'; auto).
-    + inversion contra; subst.
-      * apply H4. exists v, t_v, e_f. reflexivity.
-      * apply (IHe1 H2). exists e1'. auto.
-      * apply (IHe2 H3). exists e2'. auto.
-    + inversion contra; subst.
-      * apply H3. exists v, e2. reflexivity.
-      * apply (IHe H2). exists e1'. auto.
-    + inversion contra.
+      inversion contra; subst; intuition; eauto.
   - intros H0.
-    induction e; constructor.
-    + apply IHe.
-      intros [e' contra].
-      apply H0.
-      exists (exp_func a t e'). auto.
-    + apply IHe1.
-      intros [e' contra].
-      apply H0.
-      exists (exp_app e' e2). auto.
-    + apply IHe2.
-      intros [e' contra].
-      apply H0.
-      exists (exp_app e1 e'). auto.
-    + intros [v [t_v [e' H]]]. subst.
-      apply H0.
-      remember (subst_exp e' v e2) as e.
-      exists e. auto.
-    + apply IHe.
-      intros [e' contra].
-      apply H0.
-      exists (exp_tfunc a e'). auto.
-    + apply IHe.
-      intros [e' contra].
-      apply H0.
-      exists (exp_tapp e' t). auto.
-    + intros [v [e' H]]. subst.
-      apply H0.
-      remember (subst_type_in_exp e' v t) as e''.
-      exists e''. auto.
+    induction e; constructor;
+      first [ solve_double_neg
+            | intuition; solve_by_destruct_ex].
 Qed.
+
 
 Reserved Notation "e1 ~ e2" (at level 20).
 
+(* the symmetric transitive closure of reductions *)
 Inductive equivalent : relation exp :=
   | equiv_base : forall e1 e2,
       e1 |>* e2 ->
@@ -329,51 +298,27 @@ Inductive equivalent : relation exp :=
 where "e1 ~ e2" := (equivalent e1 e2).
 Hint Constructors equivalent.
 
+
+(* prove Equivalence and Proper for each constructors for rewriting *)
 Instance equiv_Equiv : Equivalence equivalent.
 Proof.
-  split.
-  - intros e.
-    constructor.
-    apply bn_refl.
-  - intros e1 e2 H.
-    apply equiv_symmetric.
-    assumption.
-  - intros e1 e2 e3 H1 H2.
-    eapply equiv_transitive.
-    eauto.
-    auto.
+  split; eauto.
 Qed.
 
 Ltac equiv_induction :=
   match goal with
-    H1: _ ~ _ |- _ => induction H1; eauto;
-                    match goal with
-                      H2: _ |>* _ |- _ => induction H2; eauto
-                    end
+    H1: _ ~ _ |- _ =>
+    induction H1; eauto;
+    match goal with
+      H2: _ |>* _ |- _ => induction H2; eauto
+    end
   end.
 
-Instance exp_func_Proper : Proper (eq ==> eq ==> equivalent ==> equivalent)
-                                  exp_func.
+Instance exp_func_Proper :
+  Proper (eq ==> eq ==> equivalent ==> equivalent) exp_func.
 Proof.
   intros v1 v2 Hv t1 t2 Ht e1 e2 He.
-  rewrite Hv.
-  rewrite Ht.
-  equiv_induction.
-Qed.
-
-Instance exp_app_e2_Proper : forall e1, Proper (equivalent ==> equivalent)
-                                          (exp_app e1).
-Proof.
-  intros e1.
-  intros e2 e2' H2.
-  equiv_induction.
-Qed.
-
-Instance exp_app_e1_Proper : forall e2, Proper (equivalent ==> equivalent)
-                                          (fun e1 => exp_app e1 e2).
-Proof.
-  intros e2.
-  intros e1 e1' H1.
+  subst.
   equiv_induction.
 Qed.
 
@@ -381,35 +326,23 @@ Instance exp_app_full_Proper :
   Proper (equivalent ==> equivalent ==> equivalent) exp_app.
 Proof.
   intros e1 e1' H1 e2 e2' H2.
-  transitivity (exp_app e1 e2').
-  rewrite H2. reflexivity.
-  apply exp_app_e1_Proper.
-  auto.
+  transitivity (exp_app e1 e2'); equiv_induction.
 Qed.
 
-Instance exp_tfunc_Proper : Proper (eq ==> equivalent ==> equivalent)
-                                   exp_tfunc.
+Instance exp_tfunc_Proper :
+  Proper (eq ==> equivalent ==> equivalent) exp_tfunc.
 Proof.
   intros v1 v2 Hv e1 e2 He.
-  rewrite Hv.
+  subst.
   equiv_induction.
 Qed.
 
-Instance exp_tapp_Proper : Proper (equivalent ==> eq ==> equivalent)
-                                  exp_tapp.
+Instance exp_tapp_Proper :
+  Proper (equivalent ==> eq ==> equivalent) exp_tapp.
 Proof.
   intros e1 e2 He t1 t2 Ht.
-  rewrite Ht.
+  subst.
   equiv_induction.
-Qed.
-
-
-Theorem reduce_equiv : forall e1 e2,
-    e1 |> e2 ->
-    e1 ~ e2.
-Proof.
-  intros e1 e2 H.
-  eauto.
 Qed.
 
 
@@ -462,7 +395,7 @@ Definition identity_type :=
 Fact identity_typechecked :
   Some identity_type = typecheck identity.
 Proof.
-  compute. reflexivity.
+  reflexivity.
 Qed.
 
 Theorem typecheck_sound : forall env e t,
@@ -502,11 +435,10 @@ Theorem typecheck_complete : forall env e t,
     / env |- e : t -> _typecheck env e = Some t.
 Proof.
   intros env e t H0.
-  induction H0; simpl; try rewrite IHtype_checked; try reflexivity.
+  induction H0; simpl; try solve_by_rewrite.
   - rewrite IHtype_checked1. rewrite IHtype_checked2.
     destruct (type_eq_dec t_v t_v) as [b|b]; try elim b; reflexivity.
-  - subst. reflexivity.
-  - auto.
+  - rewrite IHtype_checked. rewrite H. reflexivity.
 Qed.
 
 Hint Resolve typecheck_sound.

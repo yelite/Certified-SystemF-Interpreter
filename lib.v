@@ -52,3 +52,14 @@ Ltac destruct_prem :=
   | _ => idtac
   end.
 
+
+Ltac solve_double_neg :=
+  match goal with
+  | [H1 : ~?P -> ?Q |- ?Q] => apply H1; intros [e' contra]; eauto
+  end.
+
+Ltac solve_by_destruct_ex :=
+  match goal with
+  | [H1 : ex _ |- _] => destruct H1; solve_by_destruct_ex
+  | _ => subst; solve [eauto]
+  end.
