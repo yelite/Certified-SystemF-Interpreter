@@ -30,3 +30,25 @@ Ltac option_match H n :=
     destruct OE as [E |];
     inversion H
   end.
+
+
+Ltac auto_cond_rewrite :=
+  match goal with
+  | [H1 : forall _, _ -> _ = _, H2 : _ |- _] =>
+    rewrite (H1 _ H2); auto; clear H1 H2; auto_cond_rewrite
+  | _ => idtac
+  end.
+
+Ltac solve_by_rewrite :=
+  match goal with
+  | [H : _ = _ |- _] =>  solve [rewrite H; auto]
+  | _ => idtac
+  end.
+
+Ltac destruct_prem :=
+  match goal with
+  | |- context[if ?P then _ else _] =>
+    destruct P; try contradiction
+  | _ => idtac
+  end.
+

@@ -108,28 +108,16 @@ Fixpoint subst_type_in_exp (e : exp) (id : ascii) (t : type) : exp :=
   | exp_var v => e
   end.
 
+
 Theorem subst_type_in_exp_correct : forall e id t e',
     subst_type_in_exp e id t = e' <-> type_subst_in_exp e id t e'.
 Proof.
   intros e id t.
-  split.
-  - generalize dependent e'.
-    induction e; intros e' H; simpl in H; subst; auto.
-    destruct (ascii_dec a id); subst; auto.
-  - generalize dependent e'.
-    induction e; intros e' H; inversion H; subst; simpl; auto.
-    + rewrite (IHe _ H7).
-      reflexivity.
-    + rewrite (IHe1 _ H2).
-      rewrite (IHe2 _ H6).
-      reflexivity.
-    + destruct (ascii_dec a id); try contradiction.
-      rewrite (IHe _ H6).
-      reflexivity.
-    + destruct (ascii_dec id id); try contradiction.
-      reflexivity.
-    + rewrite (IHe _ H2).
-      reflexivity.
+  split; generalize dependent e'.
+  - induction e; intros e' H; simpl in H; subst;
+      destruct_prem; solve_by_rewrite; auto.
+  - induction e; intros e' H; inversion H; subst; simpl;
+    destruct_prem; auto_cond_rewrite; auto.
 Qed.
 Hint Resolve -> subst_type_in_exp_correct.
 Hint Resolve <- subst_type_in_exp_correct.
@@ -179,25 +167,10 @@ Theorem subst_exp_correct : forall e id e0 e',
 Proof.
   intros e id e0 e'.
   split; generalize dependent e'.
-  - induction e; intros e' H; simpl in H;
-      try destruct (ascii_dec a id); subst; auto.
-  - induction e; intros e' H; inversion H; subst; simpl.
-    + destruct (ascii_dec a id); try contradiction.
-      rewrite (IHe _ H7).
-      reflexivity.
-    + destruct (ascii_dec id id); try contradiction.
-      reflexivity.
-    + rewrite (IHe1 _ H2).
-      rewrite (IHe2 _ H6).
-      reflexivity.
-    + rewrite (IHe _ H5).
-      reflexivity.
-    + rewrite (IHe _ H5).
-      reflexivity.
-    + destruct (ascii_dec id id); try contradiction.
-      reflexivity.
-    + destruct (ascii_dec a id); try contradiction.
-      reflexivity.
+  - induction e; intros e' H; simpl in H; subst;
+      destruct_prem; solve_by_rewrite; auto.
+  - induction e; intros e' H; inversion H; subst; simpl;
+      destruct_prem; auto_cond_rewrite; auto.
 Qed.
 Hint Resolve -> subst_exp_correct.
 Hint Resolve <- subst_exp_correct.
@@ -371,7 +344,6 @@ Proof.
     auto.
 Qed.
 
-
 Ltac equiv_induction :=
   match goal with
     H1: _ ~ _ |- _ => induction H1; eauto;
@@ -379,7 +351,6 @@ Ltac equiv_induction :=
                       H2: _ |>* _ |- _ => induction H2; eauto
                     end
   end.
-
 
 Instance exp_func_Proper : Proper (eq ==> eq ==> equivalent ==> equivalent)
                                   exp_func.
