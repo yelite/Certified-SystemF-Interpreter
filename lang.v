@@ -113,7 +113,7 @@ Proof.
   intros e id t.
   split; generalize dependent e'.
   - induction e; intros; simpl in *; subst;
-      destruct_prem; solve_by_rewrite; auto.
+      destruct_prem; multi_rewrite 1; auto.
   - induction e; intros e' H; inversion H; subst; simpl;
     destruct_prem; auto_cond_rewrite; auto.
 Qed.
@@ -166,7 +166,7 @@ Proof.
   intros e id e0 e'.
   split; generalize dependent e'.
   - induction e; intros; simpl in *; subst;
-      destruct_prem; solve_by_rewrite; auto.
+      destruct_prem; multi_rewrite 1; auto.
   - induction e; intros e' H; inversion H; subst; simpl;
       destruct_prem; auto_cond_rewrite; auto.
 Qed.
@@ -402,43 +402,15 @@ Theorem typecheck_sound : forall env e t,
     _typecheck env e = Some t -> / env |- e : t.
 Proof.
   intros env e. generalize dependent env.
-  induction e; intros env t' H0; simpl in H0.
-  - remember {a, t | env} as env'.
-    remember (_typecheck env' e) as ot.
-    destruct ot; inversion H0.
-    apply tc_func.
-    rewrite <- Heqenv'.
-    auto.
-  - remember (_typecheck env e1) as ot1.
-    remember (_typecheck env e2) as ot2.
-    destruct ot1 as [t1|];
-      try solve by inversion;
-      destruct t1 as [|t1 t0|]; try solve by inversion.
-    destruct ot2 as [t2|];
-      try solve by inversion.
-    destruct (type_eq_dec t1 t2); try solve by inversion.
-    inversion H0. subst.
-    apply tc_app with t2; auto.
-  - remember (_typecheck env e) as ot.
-    destruct ot as [t|]; try solve by inversion.
-    inversion H0. subst.
-    apply tc_tfunc. auto.
-  - remember (_typecheck env e) as ot.
-    destruct ot as [t0|]; try solve by inversion.
-    destruct t0; try solve by inversion.
-    inversion H0. subst.
-    apply tc_tapp with a t0; auto.
-  - auto.
+  induction e; intros env t' H0; simpl in H0;
+    destruct_match; solve_by_inversion_step eauto.
 Qed.
 
 Theorem typecheck_complete : forall env e t,
     / env |- e : t -> _typecheck env e = Some t.
 Proof.
   intros env e t H0.
-  induction H0; simpl; try solve_by_rewrite.
-  - rewrite IHtype_checked1. rewrite IHtype_checked2.
-    destruct (type_eq_dec t_v t_v) as [b|b]; try elim b; reflexivity.
-  - rewrite IHtype_checked. rewrite H. reflexivity.
+  induction H0; simpl; multi_rewrite 2; destruct_prem; eauto.
 Qed.
 
 Hint Resolve typecheck_sound.

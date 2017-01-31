@@ -39,18 +39,28 @@ Ltac auto_cond_rewrite :=
   | _ => idtac
   end.
 
-Ltac solve_by_rewrite :=
-  match goal with
-  | [H : _ = _ |- _] =>  solve [rewrite H; auto]
-  | _ => idtac
+Ltac multi_rewrite n :=
+  match n with
+    | S ?n' =>
+      match goal with
+      | [H : _ = _ |- _] =>
+        rewrite H; try multi_rewrite n'
+      | _ => idtac
+      end
   end.
 
 Ltac destruct_prem :=
-  match goal with
-  | |- context[if ?P then _ else _] =>
-    destruct P; try contradiction
-  | _ => idtac
-  end.
+  repeat match goal with
+         | |- context[if ?P then _ else _] =>
+           destruct P; try contradiction
+         end.
+
+Ltac destruct_match :=
+  repeat match goal with
+           H : (match ?x with _ => _ end = _) |- _ =>
+           let n := fresh "n" in
+           remember x as n; destruct n; inversion H
+         end.
 
 
 Ltac solve_double_neg :=
