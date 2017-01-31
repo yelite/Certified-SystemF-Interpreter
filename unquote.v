@@ -52,43 +52,12 @@ Lemma strong_quote_nf : forall e e' t_env,
     nf e'.
 Proof.
   intros e.
-  induction e; intros e' t_env; simpl; try unfold option_map;
-  intros H0.
-  - remember ({a, t | t_env}) as t_env'.
-    remember (_quote t_env' e) as oe.
-    destruct oe as [e0|]; inversion H0.
-    eauto.
-  - remember (_typecheck t_env e1) as ot1.
-    remember (_quote t_env e1) as oe1.
-    remember (_quote t_env e2) as oe2.
-    destruct ot1 as [t1|]; inversion H0.
-    destruct oe1 as [e1'|]; inversion H0.
-    destruct oe2 as [e2'|]; inversion H0.
-    repeat constructor; eauto.
-    + intros [v [e0 contra]].
-      inversion contra.
-    + intros [v [t_v [e0 contra]]].
-      inversion contra.
-    + intros [v [t_v [e0 contra]]].
-      inversion contra.
-  - remember (_quote t_env e) as oe.
-    destruct oe as [e0'|]; inversion H0.
-    constructor.
-    eauto.
-  - remember (_typecheck t_env e) as ot.
-    remember (_quote t_env e) as oe.
-    destruct ot as [t'|]; inversion H0.
-    destruct oe as [e0'|]; inversion H0.
-    repeat constructor; eauto.
-    + intros [v [e0 contra]].
-      inversion contra.
-    + intros [v [t_v [e0 contra]]].
-      inversion contra.
-    + intros [v [e0 contra]].
-      inversion contra.
-  - inversion H0.
-    auto.
+  induction e; intros; simpl in *; try unfold option_map in *;
+    destruct_match; repeat constructor; intuition;
+      destruct_ex; solve_by_inversion_step eauto.
 Qed.
+
+Hint Resolve strong_quote_nf.
 
 
 Theorem quote_nf : forall e e',
@@ -98,11 +67,8 @@ Proof.
   intros e e' H.
   unfold quote in H.
   unfold option_map in H.
-  remember (_quote empty_mapping e) as oe.
-  destruct oe as [e0'|]; inversion H.
-  remember (strong_quote_nf e e0' empty_mapping) as H0.
-  constructor.
-  auto.
+  destruct_match.
+  eauto.
 Qed.
 
 

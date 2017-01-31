@@ -62,6 +62,11 @@ Ltac destruct_match :=
            remember x as n; destruct n; inversion H
          end.
 
+Ltac destruct_ex :=
+  repeat match goal with
+  | [H1 : ex _ |- _] => destruct H1
+  end.
+
 
 Ltac solve_double_neg :=
   match goal with
@@ -69,7 +74,4 @@ Ltac solve_double_neg :=
   end.
 
 Ltac solve_by_destruct_ex :=
-  match goal with
-  | [H1 : ex _ |- _] => destruct H1; solve_by_destruct_ex
-  | _ => subst; solve [eauto]
-  end.
+  destruct_ex; subst; solve [eauto].
