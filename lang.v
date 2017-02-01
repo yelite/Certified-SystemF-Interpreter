@@ -379,6 +379,8 @@ Fixpoint _typecheck (t_env: type_env) (e: exp) : option type :=
 Definition typecheck (e: exp) : option type :=
   _typecheck empty_mapping e.
 
+Hint Transparent typecheck.
+
 Definition identity_type_symbol : ascii := "t".
 Definition identity_type_var := (type_var identity_type_symbol).
 

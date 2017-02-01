@@ -57,15 +57,23 @@ Ltac destruct_prem :=
 
 Ltac destruct_match :=
   repeat match goal with
-           H : (match ?x with _ => _ end = _) |- _ =>
+         | H : (match ?x with _ => _ end = _) |- _ =>
            let n := fresh "n" in
            remember x as n; destruct n; inversion H
+         | |- context [match ?x with _ => _ end] =>
+           let n := fresh "n" in
+           remember x as n; destruct n; try contradiction
          end.
 
 Ltac destruct_ex :=
   repeat match goal with
   | [H1 : ex _ |- _] => destruct H1
   end.
+
+Ltac remove_option_wrapper :=
+  repeat match goal with
+         | [H : Some _ = Some _ |- _] => inversion H; clear H
+         end.
 
 
 Ltac solve_double_neg :=

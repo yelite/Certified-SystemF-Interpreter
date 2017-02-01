@@ -94,6 +94,108 @@ Inductive no_injection_symbol : exp -> Prop :=
       no_injection_symbol (exp_var v).
 
 
+Lemma typecheck_without_i : forall e env,
+    no_injection_symbol e ->
+    _typecheck env e = _typecheck {injection_symbol, identity_type | env} e.
+Proof.
+  intros e.
+  induction e; intros env Hi; simpl; inversion Hi;
+    auto_cond_rewrite; try rewrite mapping_reorder by auto; eauto.
+  (* only the variable case left *)
+  unfold mapping_update.
+  destruct_prem.
+  reflexivity.
+Qed.
+    
+
+Lemma identity_app_type : forall e env t,
+    no_injection_symbol e ->
+    _typecheck env e = Some t ->
+    _typecheck {injection_symbol, identity_type | env}
+               (exp_app (exp_tapp injection_var t) e) = Some t.
+Proof.
+  intros e env t Hi Ht.
+  simpl.
+  rewrite <- typecheck_without_i by auto.
+  multi_rewrite 1.
+  destruct_prem.
+  reflexivity.
+Qed.
+
+Hint Resolve identity_app_type.
+
+Lemma identity_app_type' : forall e env t,
+    no_injection_symbol e ->
+    / env |- e : t ->
+    / {injection_symbol, identity_type | env} |-
+    (exp_app (exp_tapp injection_var t) e) : t.
+Proof.
+  intros.
+  auto.
+Qed.
+
+Hint Resolve identity_app_type'.
+
+(* Lemmas for automations *)
+
+Lemma quote_func_type : forall v t_v e0 t0 env,
+    v <> injection_symbol ->
+    / {injection_symbol, identity_type | {v, t_v | env}} |- e0 : t0 ->
+    / {injection_symbol, identity_type | env} |-
+    exp_func v t_v e0 : type_func t_v t0.
+Proof.
+  intros.
+  constructor.
+  rewrite mapping_reorder by auto.
+  assumption.
+Qed.
+
+Lemma quote_app_type : forall e1 e2 t0 t1 env env',
+    env' = {injection_symbol, identity_type | env} ->
+    / env' |- e1 : type_func t0 t1 ->
+    / env' |- e2 : t0 ->
+    / env' |- exp_app (exp_app (exp_tapp injection_var
+                                        (type_func t0 t1)) e1) e2 : t1.
+Proof.
+  intros e1 e2 t0 t1 env env' He H1 H2.
+  rewrite He in *.
+  repeat econstructor; auto.
+Qed.
+
+Lemma quote_tapp_type : forall e1 t2 v t1 env env',
+    env' = {injection_symbol, identity_type | env} ->
+    / env' |- e1 : type_forall v t1 ->
+    / env' |- exp_tapp (exp_app (exp_tapp injection_var
+                                         (type_forall v t1)) e1) t2 :
+               subst_type t1 v t2.
+Proof.
+  intros e1 t2 v t1 env env' He H1.
+  rewrite He in *.
+  repeat econstructor.
+  auto.
+Qed.
+
+Lemma quote_var_type: forall v t env,
+    v <> injection_symbol ->
+    env v = Some t ->
+    / {injection_symbol, identity_type | env} |- exp_var v : t.
+Proof.
+  intros.
+  constructor.
+  unfold mapping_update.
+  destruct_prem.
+  assumption.
+Qed.
+
+Hint Resolve quote_func_type quote_app_type quote_tapp_type quote_var_type.
+
+
+Ltac rewrite_type_equiv :=
+  repeat match goal with
+         | [H1 : Some _ = _typecheck ?env ?e, H2 : / ?env |- ?e : _ |- _] =>
+           apply typecheck_complete in H2; rewrite H2 in H1; inversion H1
+         end.
+
 Lemma strong_quote_type : forall e e' env t0,
     no_injection_symbol e ->
     _quote env e = Some e' ->
@@ -108,32 +210,12 @@ Proof.
   generalize dependent env.
   generalize dependent t0.
   induction e; intros t0 env Ht e0' He; simpl in He;
-    try unfold option_map in He;
-    inversion Ht; subst; inversion Hi; destruct_match; auto.
-  - constructor.
-    rewrite (mapping_reorder _ _ _ _ _ H1).
-    subst.
-    auto.
-  - apply tc_app with t_v;
-      try apply tc_app with (type_func t_v t0); eauto.
-    (* i t1 |- t1 -> t1 *)
-    apply typecheck_complete in H2.
-    rewrite H2 in *.
-    solve_by_inversion_step auto.
-  - apply tc_tapp with v t_e; auto.
-    apply tc_app with (type_forall v t_e); auto.
-    apply tc_tapp with identity_type_symbol identity_inner_type; auto.
-    apply typecheck_complete in H2.
-    rewrite H2 in *.
-    solve_by_inversion_step auto.
-  - inversion He.
-    constructor.
-    unfold mapping_update.
-    destruct_prem.
-    auto.
+    try unfold option_map in He; inversion Ht; subst; inversion Hi;
+      destruct_match ; rewrite_type_equiv; remove_option_wrapper; eauto.
 Qed.
 
 Hint Resolve strong_quote_type.
+
 
 
 Theorem quote_type : forall e e' t0,
@@ -151,41 +233,33 @@ Proof.
 Qed.
 
 
+(* don't have a decision procedure for reduction,
+   so this proof is quite verbose *)
 Lemma unquoted_wrapper : forall t e e',
     exp_subst e injection_symbol identity e' ->
     (exp_app (exp_tapp unquote t)
              (exp_func injection_symbol identity_type e)) ~ e'.
 Proof.
   intros t e e' H0.
-  remember (exp_func "q" (type_func identity_type t)
-                     (exp_app (exp_var "q") identity)) as m.
-  assert ((exp_tapp unquote t) ~ m).
+  assert ((exp_tapp unquote t)
+            ~ (exp_func "q" (type_func identity_type t)
+                        (exp_app (exp_var "q") identity))) as H.
   {
-    apply equiv_base.
-    apply bn_base.
-    constructor.
-    rewrite Heqm.
-    apply tse_func.
-    auto.
-    unfold identity.
-    unfold identity_type_var.
+    repeat constructor.
     unfold identity_type_symbol.
-    eapply tse_app.
-    auto.
-    eapply tse_tfunc_p.
     congruence.
-    auto.
   }
-  subst.
   rewrite H.
-  econstructor 3.
-  repeat econstructor; try (intros contra; inversion contra).
-  fold identity.
-  repeat constructor.
-  auto.
+  (* needs two steps of reductions here *)
+  econstructor 3;
+    repeat econstructor; try (intros contra; inversion contra).
+  assumption.
 Qed.
 
-
+(*
+  it's nice to have these trivial lemmas,
+  since using eauto is much easier than rewrite 
+ *)
 Lemma identity_reduce : forall e t,
     (exp_app (exp_tapp identity t) e) ~ e.
 Proof.
@@ -193,6 +267,51 @@ Proof.
   constructor.
   econstructor 2; repeat constructor.
 Qed.
+
+Lemma exp_func_equiv : forall v t_v e1 e2,
+    e1 ~ e2 ->
+    exp_func v t_v e1 ~ exp_func v t_v e2.
+Proof.
+  intros.
+  rewrite H.
+  reflexivity.
+Qed.
+
+Lemma exp_app_equiv : forall e1 e2 e1' e2',
+    e1 ~ e1' ->
+    e2 ~ e2' ->
+    exp_app e1 e2 ~ exp_app e1' e2'.
+Proof.
+  intros.
+  rewrite H.
+  rewrite H0.
+  reflexivity.
+Qed.
+
+Lemma exp_tfunc_equiv : forall v e e',
+    e ~ e' ->
+    exp_tfunc v e ~ exp_tfunc v e'.
+Proof.
+  intros.
+  rewrite H.
+  reflexivity.
+Qed.
+
+Lemma exp_tapp_equiv : forall e e' t,
+    e ~ e' ->
+    exp_tapp e t ~ exp_tapp e' t.
+Proof.
+  intros.
+  rewrite H.
+  reflexivity.
+Qed.
+
+
+Hint Resolve identity_reduce.
+Hint Resolve exp_func_equiv.
+Hint Resolve exp_app_equiv.
+Hint Resolve exp_tfunc_equiv.
+Hint Resolve exp_tapp_equiv.
 
 
 Lemma unquoted_free_eq : forall t e e' env,
@@ -206,51 +325,15 @@ Proof.
   generalize dependent e'.
   generalize dependent env.
   induction e; intros env e' He t0 Ht;
-    inversion Hi; subst; simpl in *.
-  + unfold option_map in He.
-    remember ({a, t | env}) as env'.
-    option_match He e.
-    option_match Ht t.
-    subst.
-    simpl.
-    destruct (ascii_dec a injection_symbol); try contradiction.
-    symmetry in Heqoe, Heqot.
-    rewrite (IHe H3 _ _ Heqoe _ Heqot).
-    reflexivity.
-  + option_match He t1.
-    option_match He e1.
-    option_match He e2.
-    destruct t1 as [|t10 t11|]; inversion Ht; subst.
-    option_match Ht t2.
-    clear He H0 H3.
-    simpl.
-    symmetry in Heqoe1, Heqoe2, Heqot1, Heqot2.
-    rewrite (IHe1 H1 _ _ Heqoe1 _ Heqot1).
-    rewrite (IHe2 H2 _ _ Heqoe2 _ Heqot2).
-    rewrite identity_reduce.
-    reflexivity.
-  + unfold option_map in He.
-    option_match Ht t.
-    option_match He e.
-    simpl.
-    symmetry in Heqoe, Heqot.
-    rewrite (IHe H0 _ _ Heqoe _ Heqot).
-    reflexivity.
-  + option_match He t.
-    option_match He e.
-    destruct t1; inversion Ht.
-    simpl.
-    rewrite identity_reduce.
-    symmetry in Heqoe, Heqot.
-    rewrite (IHe H0 _ _ Heqoe _ Heqot).
-    reflexivity.
-  + inversion He.
-    simpl.
-    destruct (ascii_dec a injection_symbol); try contradiction.
-    reflexivity.
+    inversion Hi; inversion He; subst; simpl in *;
+      try unfold option_map in *;
+      destruct_match; simpl; destruct_prem; eauto.
 Qed.
 
-      
+Hint Resolve unquoted_wrapper.
+Hint Resolve unquoted_free_eq.
+
+
 Theorem unquoted_eq : forall e e' t,
     no_injection_symbol e ->
     quote e = Some e' ->
@@ -261,8 +344,9 @@ Proof.
   unfold quote in Hq.
   unfold option_map in Hq.
   option_match Hq e'.
-  constructor 3 with (subst_exp e' injection_symbol identity).
-  apply unquoted_wrapper; try (apply subst_exp_correct; auto).
-  eapply unquoted_free_eq; eauto.
+  constructor 3 with (subst_exp e' injection_symbol identity); eauto.
+  apply unquoted_wrapper.
+  apply subst_exp_correct.
+  auto.
 Qed.
 
