@@ -1,5 +1,6 @@
 Require Import lang.
 Require Import lib.
+Require Import Ascii.
 
 
 Definition injection_symbol : ascii := "i".
@@ -9,6 +10,7 @@ Definition injection_var : exp := (exp_var "i").
 Fixpoint _quote (t_env : type_env) (e : exp) : option exp :=
   match e with
   | exp_func v t_v e =>
+    if (ascii_dec v injection_symbol) then None else
       let new_t_env := { v, t_v | t_env } in
       option_map (fun e' => exp_func v t_v e')
                  (_quote new_t_env e)
@@ -23,6 +25,7 @@ Fixpoint _quote (t_env : type_env) (e : exp) : option exp :=
       | _, _, _ => None
       end 
   | exp_tfunc v e =>
+    if (ascii_dec v injection_symbol) then None else
       option_map (fun e' => exp_tfunc v e')
                  (_quote t_env e)
   | exp_tapp e t =>
@@ -34,7 +37,7 @@ Fixpoint _quote (t_env : type_env) (e : exp) : option exp :=
                          ) t)
       | _, _ => None
       end
-  | exp_var v => Some (exp_var v)
+  | exp_var v => if (ascii_dec v injection_symbol) then None else Some (exp_var v)
   end.
 
 Hint Transparent option_map.
@@ -42,6 +45,54 @@ Hint Transparent option_map.
 Definition quote (e: exp) : option exp :=
   option_map (fun e' => exp_func injection_symbol identity_type e')
              (_quote empty_mapping e).
+
+
+Inductive no_injection_symbol : exp -> Prop :=
+  | nis_func: forall v t_v e,
+      v <> injection_symbol ->
+      no_injection_symbol e ->
+      no_injection_symbol (exp_func v t_v e)
+  | nis_app: forall e1 e2,
+      no_injection_symbol e1 ->
+      no_injection_symbol e2 ->
+      no_injection_symbol (exp_app e1 e2)
+  | nis_tfunc: forall v e,
+      no_injection_symbol e ->
+      no_injection_symbol (exp_tfunc v e)
+  | nis_tapp: forall e t,
+      no_injection_symbol e ->
+      no_injection_symbol (exp_tapp e t)
+  | nis_var: forall v,
+      v <> injection_symbol ->
+      no_injection_symbol (exp_var v).
+
+Hint Constructors no_injection_symbol.
+
+
+Lemma _quote_nis : forall e e' env,
+    _quote env e = Some e' ->
+    no_injection_symbol e.
+Proof.
+  intros e.
+  induction e; intros e' env Hq; simpl in Hq;
+    destruct_prem; unfold option_map in *; destruct_match; eauto.
+Qed.
+
+Hint Resolve _quote_nis.
+
+Lemma quote_nis : forall e e',
+    quote e = Some e' ->
+    no_injection_symbol e.
+Proof.
+  intros e e' H.
+  unfold quote in H.
+  unfold option_map in H.
+  destruct_match.
+  eauto.
+Qed.
+
+Hint Resolve quote_nis.
+
 
 Definition unquote : exp :=
   let rtype := type_func identity_type (type_var "a") in
@@ -72,26 +123,6 @@ Proof.
   destruct_match.
   eauto.
 Qed.
-
-
-Inductive no_injection_symbol : exp -> Prop :=
-  | nis_func: forall v t_v e,
-      v <> injection_symbol ->
-      no_injection_symbol e ->
-      no_injection_symbol (exp_func v t_v e)
-  | nis_app: forall e1 e2,
-      no_injection_symbol e1 ->
-      no_injection_symbol e2 ->
-      no_injection_symbol (exp_app e1 e2)
-  | nis_tfunc: forall v e,
-      no_injection_symbol e ->
-      no_injection_symbol (exp_tfunc v e)
-  | nis_tapp: forall e t,
-      no_injection_symbol e ->
-      no_injection_symbol (exp_tapp e t)
-  | nis_var: forall v,
-      v <> injection_symbol ->
-      no_injection_symbol (exp_var v).
 
 
 Lemma typecheck_without_i : forall e env,
@@ -187,7 +218,11 @@ Proof.
   assumption.
 Qed.
 
-Hint Resolve quote_func_type quote_app_type quote_tapp_type quote_var_type.
+Hint Resolve
+     quote_func_type
+     quote_app_type
+     quote_tapp_type
+     quote_var_type.
 
 
 Ltac rewrite_type_equiv :=
@@ -197,13 +232,14 @@ Ltac rewrite_type_equiv :=
          end.
 
 Lemma strong_quote_type : forall e e' env t0,
-    no_injection_symbol e ->
     _quote env e = Some e' ->
     _typecheck env e = Some t0 ->
     _typecheck {injection_symbol, identity_type | env} e'
     = Some t0.
 Proof.
-  intros e e' env t0 Hi He Ht.
+  intros e e' env t0 He Ht.
+  generalize (_quote_nis _ _ _ He).
+  intros Hi.
   apply typecheck_sound in Ht.
   apply typecheck_complete.
   generalize dependent e'.
@@ -217,14 +253,12 @@ Qed.
 Hint Resolve strong_quote_type.
 
 
-
 Theorem quote_type : forall e e' t0,
-    no_injection_symbol e ->
     quote e = Some e' ->
     typecheck e = Some t0 ->
     typecheck e' = Some (type_func identity_type t0).
 Proof.
-  intros e e' t0 H0 H1 H2.
+  intros e e' t0 H1 H2.
   unfold quote in H1.
   unfold option_map in H1.
   destruct_match.
@@ -315,12 +349,13 @@ Hint Resolve exp_tapp_equiv.
 
 
 Lemma unquoted_free_eq : forall t e e' env,
-    no_injection_symbol e ->
     _typecheck env e = Some t ->
     _quote env e = Some e' ->
     (subst_exp e' injection_symbol identity) ~ e.
 Proof.
-  intros t e e' env Hi Ht He.
+  intros t e e' env Ht He.
+  generalize (_quote_nis _ _ _ He).
+  intros Hi.
   generalize dependent t.
   generalize dependent e'.
   generalize dependent env.
@@ -335,12 +370,11 @@ Hint Resolve unquoted_free_eq.
 
 
 Theorem unquoted_eq : forall e e' t,
-    no_injection_symbol e ->
     quote e = Some e' ->
     typecheck e = Some t ->
     (exp_app (exp_tapp unquote t) e') ~ e.
 Proof.
-  intros e e0' t0 Hi Hq Ht.
+  intros e e0' t0 Hq Ht.
   unfold quote in Hq.
   unfold option_map in Hq.
   option_match Hq e'.

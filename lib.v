@@ -51,6 +51,8 @@ Ltac multi_rewrite n :=
 
 Ltac destruct_prem :=
   repeat match goal with
+         | H : context[if ?P then _ else _] |- _ =>
+           destruct P; try solve [inversion H]
          | |- context[if ?P then _ else _] =>
            destruct P; try contradiction
          end.

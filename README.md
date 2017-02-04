@@ -9,14 +9,12 @@ Theorem quote_nf : forall e e',
     
 (* the quoted representation is typed correctly *)
 Theorem quote_type : forall e e' t0,
-    no_injection_symbol e ->
     quote e = Some e' ->
     typecheck e = Some t0 ->
     typecheck e' = Some (type_func identity_type t0).
     
-(* unquoted representation is equivalent to the original term*)
+(* unquoted representation is equivalent to the original term *)
 Theorem unquoted_eq : forall e e' t,
-    no_injection_symbol e ->
     quote e = Some e' ->
     typecheck e = Some t ->
     (exp_app (exp_tapp unquote t) e') ~ e.
